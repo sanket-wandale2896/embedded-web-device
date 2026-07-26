@@ -1,0 +1,20 @@
+{
+  "name": "embedded-web-device-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Embedded-style device web server and Vue 3 frontend demo",
+  "workspaces": [
+    "server",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently -k \"npm run dev --workspace server\" \"npm run dev --workspace frontend\"",
+    "dev:server": "npm run dev --workspace server",
+    "dev:frontend": "npm run dev --workspace frontend",
+    "build": "npm run build --workspace frontend",
+    "start": "npm run start --workspace server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
