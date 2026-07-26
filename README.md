@@ -45,3 +45,47 @@ This project simulates an embedded flow transmitter with a separate Express back
 - `GET /api/users` (service role only)
 - `POST /api/users` (service role only, can create admin/user logins)
 - `GET /health`
+
+## Start all 3 processes (backend + frontend + cloudflare)
+
+Run all commands from the project root folder.
+
+1. Terminal 1: start backend (Express on 8080)
+   - `npm run start --workspace server`
+
+2. Terminal 2: start frontend (Vite on 5173)
+   - `npm run dev --workspace frontend`
+
+3. Terminal 3: start Cloudflare tunnel to frontend
+   - `"C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://localhost:5173`
+   - Copy the generated `https://...trycloudflare.com` URL and open it in browser.
+
+4. Verify everything is running
+   - Frontend local: `http://localhost:5173`
+   - Backend health: `http://localhost:8080/health`
+   - Public tunnel URL: `https://...trycloudflare.com`
+
+## Stop all 3 processes
+
+Preferred method:
+
+1. In Terminal 3 (cloudflared), press `Ctrl + C`.
+2. In Terminal 2 (frontend), press `Ctrl + C`.
+3. In Terminal 1 (backend), press `Ctrl + C`.
+
+Fallback method from any PowerShell terminal:
+
+1. Stop frontend on 5173
+   - `$frontPids = Get-NetTCPConnection -State Listen -LocalPort 5173 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique`
+   - `if ($frontPids) { $frontPids | ForEach-Object { Stop-Process -Id $_ -Force } }`
+
+2. Stop backend on 8080
+   - `$backPids = Get-NetTCPConnection -State Listen -LocalPort 8080 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique`
+   - `if ($backPids) { $backPids | ForEach-Object { Stop-Process -Id $_ -Force } }`
+
+3. Stop cloudflared
+   - `Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force`
+
+4. Verify all are stopped
+   - `Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 5173, 8080 }`
+   - `Get-Process cloudflared -ErrorAction SilentlyContinue`
