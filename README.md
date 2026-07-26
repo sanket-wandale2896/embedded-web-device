@@ -1,4 +1,4 @@
-# Embedded Web Device Demo 1
+# Embedded Web Device Demo
 
 This project simulates an embedded flow transmitter with a separate Express backend and Vue 3 frontend.
 
