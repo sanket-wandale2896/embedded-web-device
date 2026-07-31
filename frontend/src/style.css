@@ -293,6 +293,106 @@ button:disabled {
   padding-top: 18px;
 }
 
+.audit-panel {
+  margin-top: 24px;
+  border-top: 1px solid rgba(125, 163, 210, 0.2);
+  padding-top: 18px;
+}
+
+.secondary-button {
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(113, 145, 191, 0.32);
+  background: rgba(9, 20, 37, 0.72);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.secondary-button:hover:not(:disabled) {
+  box-shadow: 0 8px 18px rgba(5, 13, 26, 0.45);
+}
+
+.audit-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.audit-limit-control {
+  display: grid;
+  gap: 4px;
+  font-size: 0.8rem;
+  min-width: 90px;
+}
+
+.audit-limit-control select {
+  height: 40px;
+}
+
+.audit-list {
+  display: grid;
+  gap: 10px;
+}
+
+.audit-item {
+  border: 1px solid rgba(113, 145, 191, 0.22);
+  border-radius: 14px;
+  padding: 12px;
+  background: rgba(9, 20, 37, 0.62);
+}
+
+.audit-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.audit-item-header strong {
+  color: var(--text-main);
+}
+
+.audit-item-header span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.audit-role {
+  margin: 8px 0;
+}
+
+.audit-target {
+  margin: 0 0 8px;
+}
+
+.audit-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid rgba(113, 145, 191, 0.16);
+  padding-top: 10px;
+}
+
+.audit-pagination p {
+  margin: 0;
+}
+
+.audit-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .service-form {
   margin-top: 8px;
 }
@@ -315,11 +415,42 @@ button:disabled {
   background: rgba(9, 20, 37, 0.66);
 }
 
-.user-list li span {
+.user-role {
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-size: 0.78rem;
+}
+
+.protected-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 177, 74, 0.4);
+  background: rgba(255, 177, 74, 0.14);
+  color: #ffd9a8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.user-list-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.user-list-item-meta .secondary-button {
+  height: 34px;
+  padding: 0 12px;
+}
+
+.danger-button {
+  border-color: rgba(255, 124, 124, 0.42);
+  color: #ffd6d6;
 }
 
 @media (max-width: 920px) {
@@ -330,6 +461,16 @@ button:disabled {
   .panel-header,
   .config-header {
     flex-direction: column;
+  }
+
+  .audit-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .audit-pagination {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .device-chip {

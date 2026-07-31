@@ -63,9 +63,21 @@ By default, the backend now allows cross-origin requests for development. To res
 - `GET /api/device/telemetry`
 - `GET /api/device/config`
 - `POST /api/device/config`
+- `GET /api/device/config/audit` (service/admin only, supports `?limit=50`)
 - `GET /api/users` (service role only)
 - `POST /api/users` (service role only, can create admin/user logins)
+- `DELETE /api/users/:username` (service role only, deletes non-service logins)
 - `GET /health`
+
+## Config persistence and audit trail
+
+- Device config is now stored in SQLite at `server/data/device.db`.
+- Config survives server restarts and power cycles (unless the DB file is deleted).
+- Every config write to `POST /api/device/config` creates an audit record with:
+   - timestamp
+   - actor username and role
+   - full config values after change
+- Query recent audit entries via `GET /api/device/config/audit?limit=50`.
 
 ## Start all 3 processes (backend + frontend + cloudflare)
 

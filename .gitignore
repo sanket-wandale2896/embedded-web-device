@@ -4,3 +4,4 @@ frontend/dist/
 server/node_modules/
 *.log
 .DS_Store
+server/data/

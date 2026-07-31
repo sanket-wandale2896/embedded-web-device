@@ -41,6 +41,27 @@ interface ManagedUsersResponse {
   users: AppUser[]
 }
 
+interface ConfigAuditEntry {
+  id: number
+  eventType: string
+  changedAt: string
+  changedBy: {
+    username: string
+    role: string
+  }
+  targetUsername?: string | null
+  targetRole?: string | null
+  config?: {
+    setpointKgHr: number
+    dampingSeconds: number
+    alarmHighKgHr: number
+  } | null
+}
+
+interface ConfigAuditResponse {
+  entries: ConfigAuditEntry[]
+}
+
 const token = ref('')
 const poller = ref<number | null>(null)
 const isEditingConfig = ref(false)
@@ -54,6 +75,13 @@ const telemetry = ref<DeviceTelemetry | null>(null)
 const currentUser = ref<AppUser | null>(null)
 const managedUsers = ref<AppUser[]>([])
 const isCreatingUser = ref(false)
+const deletingUsername = ref('')
+const auditEntries = ref<ConfigAuditEntry[]>([])
+const auditError = ref('')
+const isLoadingAudit = ref(false)
+const auditFetchLimit = ref(25)
+const auditPageSize = 5
+const auditCurrentPage = ref(1)
 
 const loginForm = reactive({
   username: 'user',
@@ -85,9 +113,26 @@ const userMgmtMessage = reactive({
 const isAuthenticated = computed(() => token.value.length > 0)
 const isServiceUser = computed(() => currentUser.value?.role === 'service')
 const canEditConfig = computed(() => currentUser.value?.role === 'service' || currentUser.value?.role === 'admin')
+const canViewAuditTrail = computed(
+  () => currentUser.value?.role === 'service' || currentUser.value?.role === 'admin',
+)
 const hasConfigMessage = computed(() => configMessage.text.length > 0)
 const hasUserMgmtMessage = computed(() => userMgmtMessage.text.length > 0)
 const hasTelemetry = computed(() => telemetry.value !== null)
+const totalAuditPages = computed(() => Math.max(1, Math.ceil(auditEntries.value.length / auditPageSize)))
+const paginatedAuditEntries = computed(() => {
+  const start = (auditCurrentPage.value - 1) * auditPageSize
+  return auditEntries.value.slice(start, start + auditPageSize)
+})
+const auditPageSummary = computed(() => {
+  if (auditEntries.value.length === 0) {
+    return 'No records loaded'
+  }
+
+  const start = (auditCurrentPage.value - 1) * auditPageSize + 1
+  const end = Math.min(auditCurrentPage.value * auditPageSize, auditEntries.value.length)
+  return `Showing ${start}-${end} of ${auditEntries.value.length}`
+})
 const configStatusText = computed(() =>
   !canEditConfig.value
     ? 'Read-only access for user role'
@@ -96,8 +141,65 @@ const configStatusText = computed(() =>
       : 'Configuration synced with device',
 )
 
+function formatLocalTimestamp(value: string | Date) {
+  const date = value instanceof Date ? value : new Date(value)
+  return date.toLocaleString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'short',
+  })
+}
+
+function describeAuditEvent(entry: ConfigAuditEntry) {
+  switch (entry.eventType) {
+    case 'CONFIG_UPDATED':
+      return 'Configuration updated'
+    case 'CONFIG_SEEDED':
+      return 'Initial configuration seeded'
+    case 'USER_LOGIN':
+      return 'User logged in'
+    case 'USER_CREATED':
+      return entry.targetUsername ? `User created: ${entry.targetUsername}` : 'User created'
+    case 'USER_DELETED':
+      return entry.targetUsername ? `User deleted: ${entry.targetUsername}` : 'User deleted'
+    default:
+      return entry.eventType
+  }
+}
+
 function authHeaders() {
   return { Authorization: `Bearer ${token.value}` }
+}
+
+async function extractApiError(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get('content-type') || ''
+
+  if (contentType.includes('application/json')) {
+    try {
+      const payload = (await response.json()) as { error?: string }
+      if (payload.error) {
+        return payload.error
+      }
+    } catch {
+      // Fallback to text/status when a server sends invalid JSON.
+    }
+  }
+
+  try {
+    const rawBody = (await response.text()).trim()
+    if (rawBody.length > 0) {
+      return rawBody
+    }
+  } catch {
+    // Ignore read errors and fall through to generic message.
+  }
+
+  return `${fallbackMessage} (HTTP ${response.status})`
 }
 
 async function login(username: string, password: string) {
@@ -188,6 +290,32 @@ async function createManagedUser(payload: { username: string; password: string; 
   return (await response.json()) as { ok: boolean; user: AppUser }
 }
 
+async function deleteManagedUser(username: string) {
+  const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+
+  if (!response.ok) {
+    throw new Error(await extractApiError(response, 'Failed to delete user'))
+  }
+
+  return (await response.json()) as { ok: boolean; deletedUser: AppUser }
+}
+
+async function loadConfigAudit(limit = 15) {
+  const response = await fetch(`/api/device/config/audit?limit=${limit}`, {
+    headers: authHeaders(),
+  })
+
+  if (!response.ok) {
+    const error = (await response.json()) as { error?: string }
+    throw new Error(error.error || 'Failed to load config audit trail')
+  }
+
+  return (await response.json()) as ConfigAuditResponse
+}
+
 function applyConfig(config: DeviceConfig) {
   if (isEditingConfig.value || hasPendingConfigChanges.value) {
     return
@@ -229,6 +357,104 @@ async function refreshManagedUsers() {
   managedUsers.value = result.users
 }
 
+function canDeleteManagedUser(user: AppUser) {
+  return user.username !== 'service' && user.username !== currentUser.value?.username
+}
+
+function clampAuditPage(targetPage: number) {
+  return Math.max(1, Math.min(totalAuditPages.value, targetPage))
+}
+
+function goToAuditPage(direction: -1 | 1) {
+  auditCurrentPage.value = clampAuditPage(auditCurrentPage.value + direction)
+}
+
+function exportAuditTrailAsTxt() {
+  if (auditEntries.value.length === 0) {
+    return
+  }
+
+  const generatedAt = new Date()
+  const generatedAtDisplay = formatLocalTimestamp(generatedAt)
+  const generatedAtFilePart = generatedAt
+    .toLocaleString('sv-SE', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+    .replace(/[: ]/g, '-')
+  const lines = [
+    'Embedded Web Device - Config Audit Trail',
+    `Generated at (local): ${generatedAtDisplay}`,
+    `Entries loaded: ${auditEntries.value.length}`,
+    '',
+    ...auditEntries.value.flatMap((entry, index) => {
+      const header = describeAuditEvent(entry)
+      const configLines = entry.config
+        ? [
+            `Setpoint kg/h: ${entry.config.setpointKgHr}`,
+            `Damping sec: ${entry.config.dampingSeconds}`,
+            `High alarm kg/h: ${entry.config.alarmHighKgHr}`,
+          ]
+        : []
+      const targetUserLine = entry.targetUsername
+        ? `Target user: ${entry.targetUsername}${entry.targetRole ? ` (${entry.targetRole})` : ''}`
+        : null
+
+      return [
+        `Entry ${index + 1}`,
+        `ID: ${entry.id}`,
+        `Event: ${header}`,
+        `Changed at (local): ${formatLocalTimestamp(entry.changedAt)}`,
+        `Actor: ${entry.changedBy.username} (${entry.changedBy.role})`,
+        ...(targetUserLine ? [targetUserLine] : []),
+        ...configLines,
+        '---',
+      ]
+    }),
+  ]
+
+  const blob = new Blob([`${lines.join('\n')}\n`], { type: 'text/plain;charset=utf-8' })
+  const downloadUrl = window.URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = downloadUrl
+  anchor.download = `config-audit-trail-${generatedAtFilePart}.txt`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  window.URL.revokeObjectURL(downloadUrl)
+}
+
+async function refreshAuditTrail(targetPage = auditCurrentPage.value) {
+  if (!canViewAuditTrail.value) {
+    auditEntries.value = []
+    auditError.value = ''
+    auditCurrentPage.value = 1
+    return
+  }
+
+  isLoadingAudit.value = true
+  auditError.value = ''
+
+  try {
+    const result = await loadConfigAudit(auditFetchLimit.value)
+    auditEntries.value = result.entries
+    auditCurrentPage.value = clampAuditPage(targetPage)
+  } catch (error) {
+    auditError.value = error instanceof Error ? error.message : 'Failed to load config audit trail'
+  } finally {
+    isLoadingAudit.value = false
+  }
+}
+
+async function handleAuditLimitChange() {
+  await refreshAuditTrail(1)
+}
+
 function stopPolling() {
   if (poller.value !== null) {
     window.clearInterval(poller.value)
@@ -266,6 +492,13 @@ async function handleLogin() {
     } else {
       managedUsers.value = []
     }
+    if (result.user.role === 'service' || result.user.role === 'admin') {
+      await refreshAuditTrail()
+    } else {
+      auditEntries.value = []
+      auditError.value = ''
+      auditCurrentPage.value = 1
+    }
     startPolling()
   } catch (error) {
     loginError.value = error instanceof Error ? error.message : 'Login failed'
@@ -294,6 +527,7 @@ async function handleSaveConfig() {
     isEditingConfig.value = false
     hasPendingConfigChanges.value = false
     await refreshDashboard()
+    await refreshAuditTrail()
     configMessage.text = 'Configuration saved to device.'
     configMessage.kind = 'info'
   } catch (error) {
@@ -325,6 +559,33 @@ async function handleCreateUser() {
     userMgmtMessage.kind = 'error'
   } finally {
     isCreatingUser.value = false
+  }
+}
+
+async function handleDeleteUser(user: AppUser) {
+  if (!canDeleteManagedUser(user) || deletingUsername.value.length > 0) {
+    return
+  }
+
+  const confirmed = window.confirm(`Delete login \"${user.username}\"? This cannot be undone.`)
+  if (!confirmed) {
+    return
+  }
+
+  deletingUsername.value = user.username
+  userMgmtMessage.text = ''
+
+  try {
+    await deleteManagedUser(user.username)
+    await refreshManagedUsers()
+    await refreshAuditTrail()
+    userMgmtMessage.text = `Login deleted: ${user.username}`
+    userMgmtMessage.kind = 'info'
+  } catch (error) {
+    userMgmtMessage.text = error instanceof Error ? error.message : 'Failed to delete user'
+    userMgmtMessage.kind = 'error'
+  } finally {
+    deletingUsername.value = ''
   }
 }
 
@@ -478,6 +739,87 @@ onBeforeUnmount(() => {
 
           <p v-if="hasConfigMessage" :class="['message', configMessage.kind]">{{ configMessage.text }}</p>
 
+          <section v-if="canViewAuditTrail" class="audit-panel">
+            <div class="config-header">
+              <div>
+                <p class="eyebrow">History</p>
+                <h2>Config audit trail</h2>
+              </div>
+              <div class="audit-actions">
+                <label class="audit-limit-control">
+                  Load
+                  <select v-model.number="auditFetchLimit" :disabled="isLoadingAudit" @change="handleAuditLimitChange">
+                    <option :value="10">10</option>
+                    <option :value="25">25</option>
+                    <option :value="50">50</option>
+                    <option :value="100">100</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :disabled="isLoadingAudit"
+                  @click="() => refreshAuditTrail()"
+                >
+                  {{ isLoadingAudit ? 'Refreshing...' : 'Refresh audit' }}
+                </button>
+                <button
+                  type="button"
+                  class="secondary-button"
+                  :disabled="isLoadingAudit || auditEntries.length === 0"
+                  @click="exportAuditTrailAsTxt"
+                >
+                  Export TXT
+                </button>
+              </div>
+            </div>
+
+            <p v-if="auditError" class="message error">{{ auditError }}</p>
+
+            <div v-else-if="auditEntries.length > 0" class="audit-list">
+              <article v-for="entry in paginatedAuditEntries" :key="entry.id" class="audit-item">
+                <div class="audit-item-header">
+                  <strong>#{{ entry.id }} {{ describeAuditEvent(entry) }}</strong>
+                  <span>{{ formatLocalTimestamp(entry.changedAt) }}</span>
+                </div>
+                <p class="muted audit-role">Actor: {{ entry.changedBy.username }} ({{ entry.changedBy.role }})</p>
+                <p v-if="entry.targetUsername" class="muted audit-target">
+                  Target user: {{ entry.targetUsername }}<template v-if="entry.targetRole"> ({{ entry.targetRole }})</template>
+                </p>
+                <div v-if="entry.config" class="audit-values">
+                  <span>Setpoint: {{ entry.config.setpointKgHr }}</span>
+                  <span>Damping: {{ entry.config.dampingSeconds }}</span>
+                  <span>High alarm: {{ entry.config.alarmHighKgHr }}</span>
+                </div>
+              </article>
+
+              <div class="audit-pagination">
+                <p class="muted">{{ auditPageSummary }}</p>
+                <div class="audit-pagination-controls">
+                  <button
+                    type="button"
+                    class="secondary-button"
+                    :disabled="isLoadingAudit || auditCurrentPage <= 1"
+                    @click="goToAuditPage(-1)"
+                  >
+                    Previous
+                  </button>
+                  <span class="muted">Page {{ auditCurrentPage }} / {{ totalAuditPages }}</span>
+                  <button
+                    type="button"
+                    class="secondary-button"
+                    :disabled="isLoadingAudit || auditCurrentPage >= totalAuditPages"
+                    @click="goToAuditPage(1)"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p v-else class="muted">No audit entries available yet.</p>
+          </section>
+
           <section v-if="isServiceUser" class="service-panel">
             <div class="config-header">
               <div>
@@ -516,7 +858,18 @@ onBeforeUnmount(() => {
               <ul>
                 <li v-for="item in managedUsers" :key="item.username">
                   <strong>{{ item.username }}</strong>
-                  <span>{{ item.role }}</span>
+                  <div class="user-list-item-meta">
+                    <span class="user-role">{{ item.role }}</span>
+                    <span v-if="item.role === 'service'" class="protected-badge">Protected</span>
+                    <button
+                      type="button"
+                      class="secondary-button danger-button"
+                      :disabled="!canDeleteManagedUser(item) || deletingUsername.length > 0"
+                      @click="handleDeleteUser(item)"
+                    >
+                      {{ deletingUsername === item.username ? 'Deleting...' : 'Delete' }}
+                    </button>
+                  </div>
                 </li>
               </ul>
             </div>
