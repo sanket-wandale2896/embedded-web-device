@@ -470,7 +470,7 @@ function startPolling() {
     } catch (error) {
       telemetryError.value = error instanceof Error ? error.message : 'Failed to refresh dashboard'
     }
-  }, 2000)
+  }, 1000)
 }
 
 async function handleLogin() {
