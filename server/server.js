@@ -12,8 +12,31 @@ const frontendIndexFile = path.join(frontendDistDir, "index.html");
 const app = express();
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = process.env.PORT || 8080;
+const allowedCorsOrigins = (process.env.CORS_ORIGIN || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+function corsMiddleware(req, res, next) {
+  const requestOrigin = req.headers.origin;
+
+  if (requestOrigin && (allowedCorsOrigins.length === 0 || allowedCorsOrigins.includes(requestOrigin))) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin);
+    res.setHeader("Vary", "Origin");
+  }
+
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+
+  return next();
+}
 
 app.use(express.json());
+app.use(corsMiddleware);
 
 if (existsSync(frontendDistDir)) {
   app.use(express.static(frontendDistDir));
@@ -197,5 +220,10 @@ if (existsSync(frontendIndexFile)) {
 app.listen(PORT, HOST, () => {
   console.log(`Embedded web device demo API running on http://localhost:${PORT}`);
   console.log(`LAN access enabled on http://<your-pc-ip>:${PORT}`);
+  if (allowedCorsOrigins.length > 0) {
+    console.log(`CORS restricted to: ${allowedCorsOrigins.join(", ")}`);
+  } else {
+    console.log("CORS enabled for any requesting origin (development default)");
+  }
   console.log("Login credentials -> service/service123, admin/admin123, user/user123");
 });

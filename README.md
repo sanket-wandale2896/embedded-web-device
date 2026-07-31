@@ -28,6 +28,27 @@ This project simulates an embedded flow transmitter with a separate Express back
    - Admin: `admin / admin123`
    - User: `user / user123`
 
+## Access from mobile on same Wi-Fi
+
+1. Find your PC LAN IP (Windows PowerShell):
+   - `Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.InterfaceAlias -eq 'Wi-Fi' } | Select-Object IPAddress`
+2. Open the frontend from your phone:
+   - `http://<your-pc-ip>:5173`
+3. If your mobile client app calls the API directly, use:
+   - `http://<your-pc-ip>:8080`
+   - Do not use `localhost` or `127.0.0.1` on the phone.
+4. Verify backend health from another device:
+   - `http://<your-pc-ip>:8080/health`
+5. If it still fails, allow inbound TCP `5173` and `8080` in Windows Firewall.
+
+### Optional CORS restriction
+
+By default, the backend now allows cross-origin requests for development. To restrict CORS to known origins, set `CORS_ORIGIN` before starting the server:
+
+- PowerShell example:
+  - `$env:CORS_ORIGIN='http://192.168.31.209:5173,http://192.168.31.50'`
+  - `npm run dev:server`
+
 ## Useful scripts
 
 - `npm run dev` - start backend and frontend together
